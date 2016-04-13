@@ -1,0 +1,59 @@
+#!/bin/bash
+
+# create variables
+while read L; do
+	k="`echo "$L" | cut -d '=' -f 1`"
+	v="`echo "$L" | cut -d '=' -f 2`"
+	export "$k=$v"
+done < <(grep -e '^\(title\|artist\|album\|stationName\|songStationName\|pRet\|pRetStr\|wRet\|wRetStr\|songDuration\|songPlayed\|rating\|coverArt\|stationCount\|station[0-9]*\)=' /dev/stdin) # don't overwrite $1...
+
+case "$1" in
+	songlove | songstart)
+		#liking a song will modify its state
+		#json it up here and write it out to the info file
+
+		output="{\"song\":{
+			\"artist\" : \"$artist\",
+			\"title\" : \"$title\",
+			\"album\" : \"$album\",
+			\"stationName\" : \"$stationName\",
+			\"songStationName\" : \"$songStationName\",
+			\"pRet\": \"$pRet\",
+			\"pRetStr\": \"$pRetStr\",
+			\"wRet\": \"$wRet\",
+			\"wRetStr\": \"$wRetStr\",
+			\"songPlayed\": \"$songPlayed\",
+			\"coverArt\": \"$coverArt\",
+			\"stationCount\": \"$stationCount\",
+			\"songDuration\":\"$songDuration\",
+			\"rating\" : \"$rating\"
+		}}"
+
+		touch "{{ now_playing_file }}_lock"
+		echo $output > "{{ now_playing_file }}"
+		rm "{{ now_playing_file }}_lock"
+		;;
+	usergetstations)
+	   if [[ $stationCount -gt 0 ]]; then
+		  rm -f "{{ station_list_file }}"
+
+		#json this up
+
+		output="{"
+
+		  for stnum in $(seq 0 $(($stationCount-1))); do
+		#	output += "\n \"$stnum\" : \"$station\","
+			output+="\"$stnum\" : \"$(eval "echo \$station$stnum")\","
+		  done
+
+		output+="}"
+
+		output=$(echo "$output" | sed 's/\(.*\),/\1 /')
+
+        echo $output > "{{ station_list_file }}"
+	   fi
+
+	   ;;
+esac
+
+

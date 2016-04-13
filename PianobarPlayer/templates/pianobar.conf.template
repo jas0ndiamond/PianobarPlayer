@@ -1,0 +1,23 @@
+user = {{username}}
+password = {{password}}
+    
+fifo = {{command_queue}}
+    
+event_command = {{eventcmd_executable}}
+    
+audio_quality = high
+volume = 7
+autostart_station = {{default_station}}
+    
+act_songlove = {{love_song_key}}
+act_songban = {{ban_song_key}}
+act_songinfo = {{song_info_key}}
+    
+act_songnext = {{next_song_key}}
+act_songpause = {{pause_song_key}}
+act_stationchange = {{station_change_key}}
+act_upcoming = {{upcoming_song_key}}
+act_voldown = {{vol_down_key}}
+act_volup = {{vol_up_key}}
+act_volreset = {{vol_reset_key}}
+act_quit = {{quit_key}}
