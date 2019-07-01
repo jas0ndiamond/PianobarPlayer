@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+
+<head>
+<title>PianobarPlayer!</title>
+
+
+<meta charset="utf-8">
+
+
+<script type="text/javascript" src="/js/pianobarplayer.js"></script>
+<script type="text/javascript" src="/js/jquery-1.11.3.min.js"></script>
+<script type="text/javascript" src="/js/jquery-ui-1.11.4.custom/jquery-ui.min.js"></script>
+
+<link rel="stylesheet" href="http://code.jquery.com/ui/1.11.4/themes/redmond/jquery-ui.min.css">
+
+
+          
+<!-- now playing info from nowplaying file -->
+<script type="text/javascript">
+	$( document ).ready(function() {
+		
+		$(":button").button();
+	    $("#stationSelect").selectmenu({
+	        change: function(event, ui) {
+	        	changeStation(this.value)
+	        }
+	    });
+		
+		$("#requestResult").show();
+        $("#songinfo").show();
+          
+        updatePlayer();
+        setInterval(function(){ updatePlayer()},2000);
+          
+        updateStationList();
+        setInterval(function(){ updateStationList()},12000);
+        });
+</script>
+
+</head>
+
+<body>
+
+<div id="player">
+<table border="1">
+<tr><td>
+<div id="songinfo"></div>
+</td></tr>
+</table>
+
+<br>
+<button id="playButton" type="button" onclick=" play(); ">Play</button>
+<button id="pauseButton" type="button" onclick=" pause(); ">Pause</button>
+<button id="likeButton" type="button" onclick=" like(); ">:)</button>
+<button id="banButton" type="button" onclick=" ban(); ">:(</button>
+<button id="nextButton" type="button" onclick=" next(); ">&#8658;</button>
+<button id="volupButton" type="button" onclick=" volup(); ">VOL+</button>
+<button id="voldownButton" type="button" onclick=" voldown(); ">VOL-</button>
+<button id="volresetButton" type="button" onclick=" volreset(); ">VOL0</button>
+
+<br><br>
+<button id="startButton" type="button" onclick=" start(); ">Start</button>
+<button id="stopButton" type="button" onclick=" stop(); ">Stop</button>
+<button id="quitButton" type="button" onclick=" quit(); ">Quit</button>
+
+<div id="stationlist">
+	<br><b>Stations</b><br>
+	<select id="stationSelect" style="width: 350px;">
+	</select>
+</div>
+
+<div id="requestResult"></div>
+</div>
+</body>
+
+</html>

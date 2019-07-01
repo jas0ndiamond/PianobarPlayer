@@ -1,10 +1,11 @@
-require 'logger'
 require 'liquid'
 require 'sinatra/base'
 
+require_relative "MyLogger.rb"
+
 class PianobarPlayer < Sinatra::Base
   
-  set :public_folder, './public'
+  set :public_folder, "#{File.dirname(__FILE__)}/../public"
   
   PIANOBAR_KEYS =
   {
@@ -22,9 +23,14 @@ class PianobarPlayer < Sinatra::Base
     "quit_key" => "q"
   }
   
+  PIANOBAR_START_SLEEP = 1.5
+  NOWPLAYING_SLEEP = 0.75
+  
   @@webapp = "player"
 
   @@is_playing = false
+  
+  @@show_pianobar_output = true
   
   def initialize(app = nil, params = {})
     
@@ -32,23 +38,54 @@ class PianobarPlayer < Sinatra::Base
     
     config = params.fetch(:config, false)
     
-    logfile = config["logfile"] unless !config["logfile"]
-    logfile = '../logs/pianobar.log' unless logfile
-    FileUtils.mkdir_p File.dirname(logfile) unless File.exists?(logfile)
-    
     @exe = config["executable"]
     @default_station = config["default_station"]
     @username = config["username"]
     @password = config["password"]
-    
-      
-    $logger = Logger.new(logfile, 0, 10 * 1024 * 1024) 
-      
-    #FileUtils.mkdir_p "../tmp/pianobar/config" unless File.exists?("../tmp/pianobar/config")
-    @config_file = File.expand_path("../tmp/pianobar/config")
         
-    @temp_dir = File.dirname(@config_file)
-    @template_dir = "../templates/"
+    $stdout = StringIO.new
+      
+    @stopped = nil
+    start
+  end
+  
+#  def restart
+#    stop unless is running
+#    start
+#  end
+    
+  def start
+    
+    #only consider false. nil is okay
+    if(@stopped == false)
+      MyLogger.instance.warn("PianobarPlayer", "Ignoring start when PianobarPlayer is already started")
+      return
+    end
+    
+    MyLogger.instance.info("PianobarPlayer", "Starting PianobarPlayer")
+    
+    @webdir = "#{File.dirname(__FILE__)}/../public"
+    
+    MyLogger.instance.info("PianobarPlayer", "Using www dir #{@webdir}")
+
+      
+    @temp_dir = File.expand_path( "#{File.dirname(__FILE__)}/../tmp")
+    MyLogger.instance.info("PianobarPlayer", "Using temp dir #{@temp_dir}")
+
+    @pianobar_temp_dir = File.expand_path( "#{@temp_dir}/pianobar" )
+    MyLogger.instance.info("PianobarPlayer", "Using pianobar temp dir #{@pianobar_temp_dir}")
+
+    @pianobar_config_file = File.expand_path("#{@pianobar_temp_dir}/config")
+    
+    @template_dir = File.expand_path( "File.dirname(__FILE__)}/../templates")
+    MyLogger.instance.info("PianobarPlayer", "Using template dir #{@template_dir}")
+    
+    @pianobar_config_template = "#{@template_dir}/pianobar.conf.template"
+    
+    
+    @pianobar_event_script_template = "#{@template_dir}/eventcmd.sh.template"
+    
+    
           
     @command_queue = @temp_dir + "/cmd_queue"
     @nowplaying_file = @temp_dir + "/nowplaying"
@@ -60,89 +97,97 @@ class PianobarPlayer < Sinatra::Base
     
     @pid = nil
 
-    
-    #for each user's account
-  
-    stop
-    sleep 3
-    
-    system("mkdir #{@temp_dir}") unless Dir.exists?(@temp_dir)
+    Dir.mkdir( @temp_dir) unless Dir.exists?(@temp_dir)
+    Dir.mkdir( "#{@temp_dir}/pianobar") unless Dir.exists?("#{@temp_dir}/pianobar")
+
+    raise "Could not create temp dir: #{@temp_dir}" unless Dir.exists?(@temp_dir)
+    raise "Could not create pianobar temp dir: #{@temp_dir}" unless Dir.exists?(@temp_dir)
 
     write_pianobar_config
     write_pianobar_eventcmd
-    
-    raise "Could not read config file" unless File.exists?("#{@config_file}")
-    
-    #pianobar hardcodes the config file to ~/.config/pianobar/config. create a symlink
-#    system("mkdir -p ~/.config/pianobar/")
-#    raise "Could not link config file" unless system("ln -fs #{@config_file} #{@pianobar_symlink}")
-          
-    #create fifo ctl file $HOME/.config/pianobar/ctl
-    system("rm #{@command_queue}") if File.exists?("#{@command_queue}")
-    system("mkfifo #{@command_queue}") 
+              
+    #create fifo ctl file. expected is $HOME/.config/pianobar/ctl but we can handle that later
+    File.delete( @command_queue) if File.exists?(@command_queue)
+    File.mkfifo( @command_queue ) 
     
     raise "Could not create pianobar fifo" unless File.exists?( @command_queue )
     
-    puts "Launching pianobar"
+    MyLogger.instance.info("PianobarPlayer", "Launching pianobar subprocess")
     #start syscall then pause
     @pid = fork do
       
-      #don't care about pianobar output -> disable printing it to the console
-#      File.open("/dev/null", 'w') do |io|
-#        $stdout.reopen(io)
-#        $stderr.reopen(io)
-#      end
+      #if we don't care about pianobar output, this will disable printing it to the console
+      if(!@@show_pianobar_output)
+        File.open("/dev/null", 'w') do |io|
+          $stdout.reopen(io)
+          $stderr.reopen(io)
+        end
+      end
       
-      exec "XDG_CONFIG_HOME=#{@temp_dir}/../ #{@exe} "# << ' &> /dev/null' 
+      #dir needs to be full path of dir containing pianobar/config
+      #pianobar hardcodes the config file to ~/.config/pianobar/config. 
+      exec "XDG_CONFIG_HOME=#{@temp_dir} #{@exe} "# << ' &> /dev/null' 
     end
     
     raise "Could not fork pianobar proceess" unless @pid
     
+    MyLogger.instance.info("PianobarPlayer", "Got pianobar pid: #{@pid}")
+
     #buy time for pianobar to startup
-    sleep 1.5
+    sleep PIANOBAR_START_SLEEP
+    
+    #TODO: if pianobar launches with a botched config it will just hang
+    #maybe check stdout for clues
     pause
+    
+    #possible we check here that the last line looks something like '#   -00:38/04:22'
+    #then redirect stdout/err to /dev/null
     
     #should timeout the pause. if pianobar launches and can't find the config, it'll just hang
     #check for any writes to the command queue
+    MyLogger.instance.info("PianobarPlayer",  "STDOUT read: #{$stdout.string}")
+    
     
     #fork max time countdown thread. reset timer on user action
  
+    #TODO: test this on a few setups
     #vvvvv handled by 'volume' directive in eventcmd.sh   
 #    #boost the default volume
 #    7.times do 
 #      pianobar_command(PIANOBAR_KEYS["vol_up_key"])
 #    end
-
+    @stopped = false
+    
+    MyLogger.instance.info("PianobarPlayer", "Startup completed" )
   end
   
-  def restart
-    #start calls stop
-    start
-  end
-    
   def stop
     
+    MyLogger.instance.info("PianobarPlayer", "Stopping PianobarPlayer")
+    
     #kill pianobar if it's already running
+    #can't kill all pianobar processes, another user may be using their own pianobar process
     if(@pid)
       pianobar_command(PIANOBAR_KEYS["quit_key"])
       sleep 2
+      
+      #TODO: verify pianobar process tied to pid is dead 
       @pid = nil
+      @stopped = true
     end
       
-    #can't kill all pianobar processes, another user may be using their own pianobar process
-#    stale_pids = `ps -ef |grep pianobar | grep -v grep | awk '{print $2}'`.gsub("\n", " ").chomp!
-#    
-#    $logger.info("Killing stale pids: #{stale_pids}") unless !stale_pids
-#    
-#    `kill #{stale_pids}` unless !stale_pids
   end
   
   def write_pianobar_config
+    
+    MyLogger.instance.info("PianobarPlayer", "Writing pianobar config to #{@pianobar_config_file} using template #{@pianobar_config_template}")
+    
     #load template, set value hash, render template, write to location
     
     config = ""
     
-    File.open("../templates/pianobar.conf.template", "r") do |f|
+    #TODO: use template dir variable
+    File.open(@pianobar_config_template, "r") do |f|
       f.each_line do |line|
         config += line
       end
@@ -152,23 +197,31 @@ class PianobarPlayer < Sinatra::Base
     
     config_params = PIANOBAR_KEYS.clone
     config_params["username"] = @username
-    config_params["password"] = @password  
+      
+    #TODO: use cipher for password
+    config_params["password"] = @password
+        
     config_params["command_queue"] = @command_queue
     config_params["eventcmd_executable"] = @eventcmd_executable
     config_params["default_station"] = @default_station
           
     rendered_config = template.render(config_params)
     
-    File.write( @config_file, rendered_config )
+    File.write( @pianobar_config_file, rendered_config )
+    
+    MyLogger.instance.info("PianobarPlayer", "Pianobar config written")
   
   end
   
   def write_pianobar_eventcmd
     #load template, set value hash, render template, write to location
       
+    MyLogger.instance.info("PianobarPlayer", "Writing pianobar event script to #{@eventcmd_executable} using template #{@pianobar_event_script_template}")
+
+    
     script = ""
     
-    File.open("../templates/eventcmd.sh.template", "r") do |f|
+    File.open(@pianobar_event_script_template, "r") do |f|
       f.each_line do |line|
         script += line
       end
@@ -184,12 +237,42 @@ class PianobarPlayer < Sinatra::Base
     rendered_script = template.render(script_params)
     
     File.write( @eventcmd_executable, rendered_script )
-    system("chmod +x #{@eventcmd_executable}")
+    
+    raise "Could not create event script at #{@eventcmd_executable}" unless File.exists?(@eventcmd_executable)
+    
+    #TODO: switch away from syscall if possible
+    #system("chmod +x #{@eventcmd_executable}")
+    File.chmod(0755, @eventcmd_executable) unless File.executable?(@eventcmd_executable)
+    
+    #already checked for file existence a few lines up
+    raise "Could make event script executable at #{@eventcmd_executable}" unless File.executable?(@eventcmd_executable)
+    
+    MyLogger.instance.info("PianobarPlayer", "Pianobar event script written")
   end
   
+  ####################
+  #pianobar api api
+  
   def pianobar_command(input)
-    $logger.debug("Received pianobar command #{input}")
-    system("echo \"#{input}\" > #{@command_queue} ")
+    
+    #single character for most
+    #s123 for station change
+    input = input[0..5]
+    
+    if(input =~ /[a-zA-Z\+\-\^\(\)]/)
+      MyLogger.instance.info("PianobarPlayer", "Received pianobar command #{input}")
+      
+      #command_queue is a named pipe
+      retval = system("echo \"#{input}\" > #{@command_queue} ")
+      
+      if(!retval)
+        MyLogger.instance.warn("PianobarPlayer", "Writing command #{input} to pipe has failed")
+      end
+    else
+      MyLogger.instance.warn("PianobarPlayer", "Ignoring invalid pianobar command")
+    end
+    
+    #MyLogger.instance.info("PianobarPlayer",  "STDOUT read: #{$stdout.string}")
   end
     
   def pianobar_command_sync(input)
@@ -197,14 +280,15 @@ class PianobarPlayer < Sinatra::Base
 
     pianobar_command(input)
     
-    #sleep? pianobar make take time to get the next song
+    #sleep? pianobar may take time to get the next song
     while File.mtime(@nowplaying_file) == mod_time
-      puts "sleeping, waiting for nowplaying update"
-      sleep(0.75) 
+      MyLogger.instance.debug("PianobarPlayer", "sleeping, waiting for nowplaying update" )
+      sleep(NOWPLAYING_SLEEP) 
     end
   end
       
   def get_stations
+    #read the file every time because pianobar will overwrite it if the list changes
     stations = JSON.parse(File.read(@stationlist_file))
       
     return stations.to_json 
@@ -263,40 +347,23 @@ class PianobarPlayer < Sinatra::Base
     pause unless @@is_playing
   end
     
+  #####################
+  #web endpoints
+  
   get "/#{@@webapp}" do
     
     #ui bound with web requests to manipulate fifo on fs
     
      
-    return    "<script type=\"text/javascript\" src=\"js/pianobar.js\"></script>\n" <<
-        "<script type=\"text/javascript\" src=\"js/jquery-1.11.3.min.js\"></script>\n" <<
-        "<script type=\"text/javascript\" src=\"js/jquery-ui-1.11.4.custom/jquery-ui.min.js\"></script>\n" <<
-        '<link rel="stylesheet" href="//http://code.jquery.com/ui/1.11.4/themes/redmond/jquery-ui.min.css">' << "\n"<<
-          
-        #now playing info from nowplaying file
-        '<script type="text/javascript">' << "\n" <<
-        '$( document ).ready(function() {' << "\n" <<
-          '$("#requestResult").show();' <<"\n" <<
-          '$("#songinfo").show();' <<"\n" <<
-          
-          'updatePlayer();' << "\n" <<
-          'setInterval(function(){ updatePlayer()},2000);' << "\n" <<
-          
-          'updateStationList();' << "\n" <<
-          'setInterval(function(){ updateStationList()},12000);' << "\n" <<
-        '});' << "\n" << '</script>' <<"\n" <<
-        
-        '<div id="songinfo"></div>' <<"\n"<<
-        '<button id="playButton" type="button" onclick=" play(); ">Play</button>' <<"\n"<<
-        '<button id="pauseButton" type="button" onclick=" pause(); ">Pause</button>' <<"\n"<<
-        '<button id="likeButton" type="button" onclick=" like(); ">:)</button>' <<"\n"<<
-        '<button id="banButton" type="button" onclick=" ban(); ">:(</button>' <<"\n"<<
-        '<button id="nextButton" type="button" onclick=" next(); ">&#8658;</button>' <<"\n"<<
-        '<button id="volupButton" type="button" onclick=" volup(); ">VOL+</button>' <<"\n"<<
-        '<button id="voldownButton" type="button" onclick=" voldown(); ">VOL-</button>' <<"\n"<<
-        '<button id="volresetButton" type="button" onclick=" volreset(); ">VOL0</button>' <<"\n"<<
-        '<div id="stationlist"><br><b>Stations</b><br><select id="stationSelect" onchange="changeStation(this.value);"></select></div>' <<"\n"<<
-        '<div id="requestResult"></div>' <<"\n"
+    return    File.read("#{@webdir}/index.html")
+  end
+  
+  get "/" do
+    redirect "/#{@@webapp}"
+  end
+  
+  get "/#{@@webapp}/" do
+    redirect "/#{@@webapp}"
   end
   
   get "/#{@@webapp}/play" do  
@@ -327,6 +394,27 @@ class PianobarPlayer < Sinatra::Base
   
   get "/#{@@webapp}/stop" do
     stop
+    
+    #redirect to the player
+    redirect "/#{@@webapp}"
+  end  
+  
+  get "/#{@@webapp}/start" do
+    #calling start in this manner assumes no changes to the PianobarPlayer config. for those the app needs to be restarted
+    start
+    
+    #redirect to the player
+    redirect "/#{@@webapp}"
+  end  
+  
+  get "/#{@@webapp}/quit" do
+    stop
+    
+    MyLogger.instance.info("PianobarPlayer","Pianobar Player exiting")
+    
+    Process.kill('TERM', Process.pid)
+    
+    return "<html><body><b>Thanks for coming, please tip your server</b><br><a href=\"/player\">Return to player</a></body></html>"
   end  
   
   get "/#{@@webapp}/song_info" do
@@ -338,11 +426,26 @@ class PianobarPlayer < Sinatra::Base
   end
   
   get "/#{@@webapp}/playstation" do
-    new_station = params[:station]
+    #station should be the index of the station list- a number something like 0-100
     
-    $logger.debug("Changing pianobar station to #{new_station}")
+    #support a 10000-length station list as a max
+    new_station = params[:station][0..5]
+    
+#    if(params[:station].size > 5 )
+#      new_station = params[:station][0..5]
+#    else
+#      new_station = params[:station]
+#    end
       
-    change_station(new_station)
+    if(new_station =~ /\d+/)
+      
+      MyLogger.instance.info("PianobarPlayer","Changing pianobar station to #{new_station}")
+      
+      change_station(new_station)
+    else
+      MyLogger.instance.warn("PianobarPlayer","Ignoring invalid station change")
+
+    end
   end    
   
   get "/#{@@webapp}/volup" do

@@ -43,6 +43,24 @@ function like()
 	updatePlayer();
 }
 
+function start()
+{
+	makeRequest("/player/start");
+	updatePlayer();
+}
+
+function stop()
+{
+	makeRequest("/player/stop");
+	updatePlayer();
+}
+
+function quit()
+{
+	$("#player").html(makeRequest("/player/quit"));
+	//updatePlayer();
+}
+
 function volup()
 {
 	makeRequest("/player/volup");
@@ -116,18 +134,24 @@ function updateStationList()
 	
 	$("#stationSelect").empty();
 	
-	$.each(result, function(key, value) 
-    {
-    	$("#stationSelect").append("<option value=\"" + key + "\">" + value + '</option>' );
-    });
-    
     //select current station
     
     var currentSong = getCurrentSong();
-        
-    $("#stationSelect option").filter(function() {
-    	return $(this).text() == currentSong.song.stationName; 
-	}).prop('selected', true);
+	
+	$.each(result, function(key, value) 
+    {
+		//0 => 311 Radio
+		
+		$("#stationSelect").append("<option value=\"" + key + "\" >" + value + '</option>' );
+
+		if(value == currentSong.song.stationName)
+		{
+			$("#stationSelect").val(key);
+		}	
+    });
+    
+
+    $("#stationSelect").selectmenu("refresh");
 }
 
 function makeRequest(requestUrl)

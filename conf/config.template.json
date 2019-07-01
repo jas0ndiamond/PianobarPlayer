@@ -1,7 +1,6 @@
 {
             "executable": "/home/jason/pianobar/pianobar",
             "default_station": 382784248932071002,
-            "logfile":"/home/jason/workspace/PianobarPlayer/logs/pianobar.log",
             "username":"gwbush@yale.edu",
             "password":"pretzels"
 }
