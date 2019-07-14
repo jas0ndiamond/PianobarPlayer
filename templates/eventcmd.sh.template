@@ -7,11 +7,57 @@ while read L; do
 	export "$k=$v"
 done < <(grep -e '^\(title\|artist\|album\|stationName\|songStationName\|pRet\|pRetStr\|wRet\|wRetStr\|songDuration\|songPlayed\|rating\|coverArt\|stationCount\|station[0-9]*\)=' /dev/stdin) # don't overwrite $1...
 
+
+#Currently supported events are: 
+#artistbookmark, 
+#songban, 
+#songbookmark, 
+#songexplain, 
+#songfinish, 
+#songlove, 
+#songmove, 
+#songshelf, 
+#songstart, 
+#stationaddgenre, 
+#stationaddmusic, 
+#stationaddshared, 
+#stationcreate, 
+#stationdelete, 
+#stationdeleteartistseed, 
+#stationdeletefeedback, 
+#stationdeletesongseed, 
+#stationfetchinfo, 
+#stationfetchplaylist, 
+#stationfetchgenre 
+#stationquickmixtoggle, 
+#stationrename, 
+#userlogin, 
+#usergetstations
+
 case "$1" in
 	songlove | songstart)
 		#liking a song will modify its state
 		#json it up here and write it out to the info file
 
+		#clean json here
+		artist=$(echo "$artist" | sed 's/\"//')
+		title=$(echo "$title" | sed 's/\"//')
+		album=$(echo "$album" | sed 's/\"//')
+		stationName=$(echo "$stationName" | sed 's/\"//')
+		songStationName=$(echo "$songStationName" | sed 's/\"//')
+		pRet=$(echo "$pRet" | sed 's/\"//')
+		pRetStr=$(echo "$pRetStr" | sed 's/\"//')
+		wRet=$(echo "$wRet" | sed 's/\"//')
+		wRetStr=$(echo "$wRetStr" | sed 's/\"//')
+		songPlayed=$(echo "$songPlayed" | sed 's/\"//')
+		coverArt=$(echo "$coverArt" | sed 's/\"//')
+		stationCount=$(echo "$stationCount" | sed 's/\"//')	
+		songDuration=$(echo "$songDuration" | sed 's/\"//')
+		rating=$(echo "$rating" | sed 's/\"//')
+				
+		
+		
+		#write json
 		output="{\"song\":{
 			\"artist\" : \"$artist\",
 			\"title\" : \"$title\",
@@ -31,11 +77,10 @@ case "$1" in
 
 		touch "{{ now_playing_file }}_lock"
 		echo $output > "{{ now_playing_file }}"
-		rm "{{ now_playing_file }}_lock"
+		rm -f "{{ now_playing_file }}_lock"
 		;;
 	usergetstations)
 	   if [[ $stationCount -gt 0 ]]; then
-		  rm -f "{{ station_list_file }}"
 
 		#json this up
 
@@ -43,6 +88,9 @@ case "$1" in
 
 		  for stnum in $(seq 0 $(($stationCount-1))); do
 		#	output += "\n \"$stnum\" : \"$station\","
+		
+			station=$(echo "$station" | sed 's/\"//')
+		
 			output+="\"$stnum\" : \"$(eval "echo \$station$stnum")\","
 		  done
 
@@ -50,7 +98,10 @@ case "$1" in
 
 		output=$(echo "$output" | sed 's/\(.*\),/\1 /')
 
+		touch "{{ station_list_file }}_lock"
         echo $output > "{{ station_list_file }}"
+        rm -f "{{ station_list_file }}_lock"
+        
 	   fi
 
 	   ;;

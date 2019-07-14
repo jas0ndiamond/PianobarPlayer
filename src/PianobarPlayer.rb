@@ -25,6 +25,7 @@ class PianobarPlayer < Sinatra::Base
   
   PIANOBAR_START_SLEEP = 1.5
   NOWPLAYING_SLEEP = 0.75
+  LOCKFILE_SLEEP = 0.25
   
   @@webapp = "player"
 
@@ -64,11 +65,9 @@ class PianobarPlayer < Sinatra::Base
     
     MyLogger.instance.info("PianobarPlayer", "Starting PianobarPlayer")
     
-    @webdir = "#{File.dirname(__FILE__)}/../public"
-    
+    @webdir = File.expand_path( "#{File.dirname(__FILE__)}/../public") 
     MyLogger.instance.info("PianobarPlayer", "Using www dir #{@webdir}")
 
-      
     @temp_dir = File.expand_path( "#{File.dirname(__FILE__)}/../tmp")
     MyLogger.instance.info("PianobarPlayer", "Using temp dir #{@temp_dir}")
 
@@ -77,19 +76,22 @@ class PianobarPlayer < Sinatra::Base
 
     @pianobar_config_file = File.expand_path("#{@pianobar_temp_dir}/config")
     
-    @template_dir = File.expand_path( "File.dirname(__FILE__)}/../templates")
+    @template_dir = File.expand_path( "#{File.dirname(__FILE__)}/../templates")
     MyLogger.instance.info("PianobarPlayer", "Using template dir #{@template_dir}")
     
     @pianobar_config_template = "#{@template_dir}/pianobar.conf.template"
-    
-    
     @pianobar_event_script_template = "#{@template_dir}/eventcmd.sh.template"
     
     
           
     @command_queue = @temp_dir + "/cmd_queue"
+      
     @nowplaying_file = @temp_dir + "/nowplaying"
+    @nowplaying_lock_file = @temp_dir + "/nowplaying_lock"
+    
     @stationlist_file = @temp_dir + "/stationlist"
+    @stationlist_lock_file = @temp_dir + "/stationlist_lock"
+    
     @eventcmd_executable = @temp_dir + "/eventcmd.sh"
     @playlist_dir = @temp_dir + "/playlist"
     
@@ -111,6 +113,14 @@ class PianobarPlayer < Sinatra::Base
     File.mkfifo( @command_queue ) 
     
     raise "Could not create pianobar fifo" unless File.exists?( @command_queue )
+    
+    #delete any temp info from previous runs
+    File.delete( @nowplaying_file) if File.exists?(@nowplaying_file)
+    File.delete( @nowplaying_lock_file) if File.exists?(@nowplaying_lock_file)
+
+    File.delete( @stationlist_file) if File.exists?(@stationlist_file)
+    File.delete( @stationlist_lock_file) if File.exists?(@stationlist_lock_file)
+
     
     MyLogger.instance.info("PianobarPlayer", "Launching pianobar subprocess")
     #start syscall then pause
@@ -134,7 +144,7 @@ class PianobarPlayer < Sinatra::Base
     MyLogger.instance.info("PianobarPlayer", "Got pianobar pid: #{@pid}")
 
     #buy time for pianobar to startup
-    sleep PIANOBAR_START_SLEEP
+    sleep(PIANOBAR_START_SLEEP)
     
     #TODO: if pianobar launches with a botched config it will just hang
     #maybe check stdout for clues
@@ -145,7 +155,7 @@ class PianobarPlayer < Sinatra::Base
     
     #should timeout the pause. if pianobar launches and can't find the config, it'll just hang
     #check for any writes to the command queue
-    MyLogger.instance.info("PianobarPlayer",  "STDOUT read: #{$stdout.string}")
+    #MyLogger.instance.info("PianobarPlayer",  "STDOUT read: #{$stdout.string}")
     
     
     #fork max time countdown thread. reset timer on user action
@@ -169,7 +179,7 @@ class PianobarPlayer < Sinatra::Base
     #can't kill all pianobar processes, another user may be using their own pianobar process
     if(@pid)
       pianobar_command(PIANOBAR_KEYS["quit_key"])
-      sleep 2
+      sleep(2)
       
       #TODO: verify pianobar process tied to pid is dead 
       @pid = nil
@@ -218,7 +228,6 @@ class PianobarPlayer < Sinatra::Base
       
     MyLogger.instance.info("PianobarPlayer", "Writing pianobar event script to #{@eventcmd_executable} using template #{@pianobar_event_script_template}")
 
-    
     script = ""
     
     File.open(@pianobar_event_script_template, "r") do |f|
@@ -240,8 +249,6 @@ class PianobarPlayer < Sinatra::Base
     
     raise "Could not create event script at #{@eventcmd_executable}" unless File.exists?(@eventcmd_executable)
     
-    #TODO: switch away from syscall if possible
-    #system("chmod +x #{@eventcmd_executable}")
     File.chmod(0755, @eventcmd_executable) unless File.executable?(@eventcmd_executable)
     
     #already checked for file existence a few lines up
@@ -281,17 +288,40 @@ class PianobarPlayer < Sinatra::Base
     pianobar_command(input)
     
     #sleep? pianobar may take time to get the next song
-    while File.mtime(@nowplaying_file) == mod_time
+    while(File.mtime(@nowplaying_file) == mod_time)
       MyLogger.instance.debug("PianobarPlayer", "sleeping, waiting for nowplaying update" )
       sleep(NOWPLAYING_SLEEP) 
     end
   end
       
-  def get_stations
-    #read the file every time because pianobar will overwrite it if the list changes
-    stations = JSON.parse(File.read(@stationlist_file))
+  def get_stations 
+    
+    retval = "{}"
+    
+    if(File.exists?(@stationlist_file))
       
-    return stations.to_json 
+      #TODO: check last write date
+      
+      #check for lockfile first
+      while(File.exists?( @stationlist_lock_file) )
+        MyLogger.instance.warn("PianobarPlayer", "stations file being written to. waiting for lock file to be removed." )
+        sleep(LOCKFILE_SLEEP)
+      end
+      
+      begin        
+        #occasionally the nowplaying file contains incomplete json
+        #TODO: sanitize file read before json parse
+        stations_json = JSON.parse(File.read(@stationlist_file))
+        retval = stations_json.to_json
+      rescue JSON::ParserError => e
+        MyLogger.instance.warn("PianobarPlayer", "Error parsing stations file #{@stationlist_file}: #{e}" )
+      end
+    else
+      MyLogger.instance.warn("PianobarPlayer", "stations file does not exist #{@stationlist_file}" )
+    end
+    
+    return retval
+    
   end
   
   def play
@@ -325,20 +355,32 @@ class PianobarPlayer < Sinatra::Base
   end
     
   def song_info
-    song_info_json = ""
+    retval = "{}"
     
-    File.open(@nowplaying_file, "r") do |f|
-      f.each_line do |line|
-        song_info_json += line
+    if(File.exists?(@nowplaying_file))
+      
+      #TODO: check last write date
+
+      #check for lockfile first
+      while(File.exists?( @nowplaying_lock_file) )
+        MyLogger.instance.warn("PianobarPlayer", "nowplaying file being written to. waiting for lock file to be removed." )
+        sleep(LOCKFILE_SLEEP)
       end
+      
+      begin        
+        #occasionally the nowplaying file contains incomplete or bad json
+        #TODO: sanitize file read before json parse
+        song_info_json = JSON.parse(File.read(@nowplaying_file))
+        song_info_json["song"]["is_playing"] = @@is_playing
+        retval = song_info_json.to_json
+      rescue JSON::ParserError => e
+        MyLogger.instance.warn("PianobarPlayer", "Error parsing nowplaying file #{@nowplaying_file}: #{e}" )
+      end
+    else
+      MyLogger.instance.warn("PianobarPlayer", "nowplaying file does not exist #{@nowplaying_file}" )
     end
     
-    puts "Could not read from #{@nowplaying_file}" unless song_info_json
-    
-    song_info = JSON.parse(song_info_json)
-    song_info["song"]["is_playing"] = @@is_playing
-
-    return song_info.to_json
+    return retval
   end
     
   def change_station(station)
@@ -354,8 +396,7 @@ class PianobarPlayer < Sinatra::Base
     
     #ui bound with web requests to manipulate fifo on fs
     
-     
-    return    File.read("#{@webdir}/index.html")
+    return File.read("#{@webdir}/index.html")
   end
   
   get "/" do

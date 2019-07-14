@@ -24,7 +24,7 @@ function next()
 
 function upcoming()
 {
-	
+	//TODO: implement this info since it's available
 }
 
 function ban()
@@ -57,6 +57,10 @@ function stop()
 
 function quit()
 {
+	//stop the song and station checks
+	clearInterval(songInterval);
+	clearInterval(stationInterval);
+	
 	$("#player").html(makeRequest("/player/quit"));
 	//updatePlayer();
 }
@@ -91,41 +95,67 @@ function getCurrentSong()
 function updatePlayer()
 {
 	var result = getCurrentSong();
+	
+	//in case we get a bad read
+	if
+	(
+		result != "" &&
+		result["song"] 
+	)
+	{
 
-	//play or pause depending on is_playing
-	
-	var title = result.song.title
-	
-	//show if song liked or not depending on rating 0 for nothing, 1 for like
-	if(result.song.rating == "1")
-	{
-		title += " &#10084;";
-		$("#likeButton").prop('disabled', true);
-	}
-	else
-	{
-		$("#likeButton").prop('disabled', false);
-	}
-	
-	//update playing vs paused status. the player can be reloaded mid-song
-	if(result.song.is_playing == true)
-	{
-		$("#playButton").hide();
-		$("#pauseButton").show();
-	}
-	else
-	{
-		$("#playButton").show();
-		$("#pauseButton").hide();
-	}
-	
-	var songHtml =  "<b>" + title + "</b><br>" +
-		result.song.artist + "<br>" +
-		"<i>" + result.song.album + "</i> on " + result.song.stationName
+		//play or pause depending on is_playing
+		
+		var title = result.song.title
+		
+		//show if song liked or not depending on rating 0 for nothing, 1 for like
+		if(result.song.rating == "1")
+		{
+			title += " &#10084;";
+			$("#likeButton").button( "option", "disabled", true );
+		}
+		else
+		{
+			$("#likeButton").button( "option", "disabled", false );
+		}
+		
+		//update playing vs paused status. the player can be reloaded mid-song
+		if(result.song.is_playing == true)
+		{
+			$("#playButton").hide();
+			$("#pauseButton").show();
+		}
+		else
+		{
+			$("#playButton").show();
+			$("#pauseButton").hide();
+		}
+		
+		var songHtml =  "<b>Now Playing:</b><br><br><b>" + title + "</b><br>" +
+			result.song.artist + "<br>" +
+			"<i>" + result.song.album + "</i> on " + result.song.stationName
+		
+		$("#songinfo").html(songHtml);
+		
+		//status info
+		var debugHtml = 
+			"<b>pRet</b>: (" + result.song.pRet + "): " + result.song.pRetStr +
+			"<br><b>wRet</b>: (" + result.song.wRet + "): " + result.song.wRetStr;
+
+		$("#debuginfo").html(debugHtml);
+		
+		//update upcoming list if available
+		//var upNextHtml =  "Up Next: <br><br><b>" + title + "</b><br>" +
+		//result.song.artist + "<br>" +
+		//"<i>" + result.song.album + "</i> on " + result.song.stationName
 	
 	$("#songinfo").html(songHtml);
-	
-	//update upcoming list
+	}
+	else
+	{
+		
+		console.log("Bad read of current song: " + JSON.stringify(result));
+	}
 }
 
 function updateStationList()

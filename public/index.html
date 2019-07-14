@@ -3,38 +3,56 @@
 <head>
 <title>PianobarPlayer!</title>
 
-
 <meta charset="utf-8">
 
-
 <script type="text/javascript" src="/js/pianobarplayer.js"></script>
-<script type="text/javascript" src="/js/jquery-1.11.3.min.js"></script>
-<script type="text/javascript" src="/js/jquery-ui-1.11.4.custom/jquery-ui.min.js"></script>
 
-<link rel="stylesheet" href="http://code.jquery.com/ui/1.11.4/themes/redmond/jquery-ui.min.css">
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/1.12.4/jquery.min.js"></script>
 
+<link rel="stylesheet" href="https://ajax.googleapis.com/ajax/libs/jqueryui/1.12.1/themes/smoothness/jquery-ui.css">
+<script src="https://ajax.googleapis.com/ajax/libs/jqueryui/1.12.1/jquery-ui.min.js"></script>
 
-          
 <!-- now playing info from nowplaying file -->
 <script type="text/javascript">
-	$( document ).ready(function() {
+var songInterval = null;
+var stationInterval = null;
+
+$( document ).ready(function() {
 		
-		$(":button").button();
-	    $("#stationSelect").selectmenu({
-	        change: function(event, ui) {
-	        	changeStation(this.value)
-	        }
-	    });
+	$(":button").button();
+	
+	$("#debugcheck").checkboxradio().on("change",
+			
+		 function(event, ui) {
+			console.log("Change fired " + $("#debugcheck").prop('checked'));
+			if($("#debugcheck").prop('checked') == false) 
+			{
+				$("#debuginfo").hide();
+			}
+			else
+			{
+				$("#debuginfo").show();
+			}
+		}
+	);
+	$("#debugcheck").prop('checked', false);
+	$("#debuginfo").hide();
+	
+	$("#stationSelect").selectmenu({
+		change: function(event, ui) {
+	    	changeStation(this.value)
+		}
+	});
 		
-		$("#requestResult").show();
-        $("#songinfo").show();
+	$("#requestResult").show();
+    $("#songinfo").show();
           
-        updatePlayer();
-        setInterval(function(){ updatePlayer()},2000);
+    updatePlayer();
+    songInterval = setInterval(function(){ updatePlayer()},2000);
           
-        updateStationList();
-        setInterval(function(){ updateStationList()},12000);
-        });
+    updateStationList();
+    stationInterval = setInterval(function(){ updateStationList()},12000);
+});
 </script>
 
 </head>
@@ -42,9 +60,14 @@
 <body>
 
 <div id="player">
-<table border="1">
-<tr><td>
+<table style="border:solid blue 5px; border-radius: 13px;">
+<tr id="songrow"><td style="border:solid blue 5px; border-radius: 13px;">
 <div id="songinfo"></div>
+</td></tr>
+<tr id="debugrow"><td style="border:solid blue 5px; border-radius: 13px;">
+<label for="debugcheck">Show Debug Info</label>
+<input type="checkbox" id="debugcheck">
+<div id="debuginfo"></div>
 </td></tr>
 </table>
 
@@ -59,6 +82,7 @@
 <button id="volresetButton" type="button" onclick=" volreset(); ">VOL0</button>
 
 <br><br>
+
 <button id="startButton" type="button" onclick=" start(); ">Start</button>
 <button id="stopButton" type="button" onclick=" stop(); ">Stop</button>
 <button id="quitButton" type="button" onclick=" quit(); ">Quit</button>
