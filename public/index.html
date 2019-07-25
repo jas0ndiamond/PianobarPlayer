@@ -24,7 +24,7 @@ $( document ).ready(function() {
 	$("#debugcheck").checkboxradio().on("change",
 			
 		 function(event, ui) {
-			console.log("Change fired " + $("#debugcheck").prop('checked'));
+			//console.log("Change fired " + $("#debugcheck").prop('checked'));
 			if($("#debugcheck").prop('checked') == false) 
 			{
 				$("#debuginfo").hide();
@@ -48,16 +48,16 @@ $( document ).ready(function() {
     $("#songinfo").show();
           
     updatePlayer();
-    songInterval = setInterval(function(){ updatePlayer()},2000);
+    songInterval = setInterval( updatePlayer, 2000 );
           
     updateStationList();
-    stationInterval = setInterval(function(){ updateStationList()},12000);
+    stationInterval = setInterval( updateStationList, 12000 );
 });
 </script>
 
 </head>
 
-<body>
+<body style="font-family:'arial'">
 
 <div id="player">
 <table style="border:solid blue 5px; border-radius: 13px;">

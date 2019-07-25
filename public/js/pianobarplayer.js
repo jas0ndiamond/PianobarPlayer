@@ -111,11 +111,14 @@ function updatePlayer()
 		//show if song liked or not depending on rating 0 for nothing, 1 for like
 		if(result.song.rating == "1")
 		{
-			title += " &#10084;";
+			//filled in heart because we love it
+			title += " &hearts;";
 			$("#likeButton").button( "option", "disabled", true );
 		}
 		else
 		{
+			//blank heart because we may love it
+			title += " &#9825;"
 			$("#likeButton").button( "option", "disabled", false );
 		}
 		
@@ -195,7 +198,7 @@ function makeRequest(requestUrl)
 	})
     .error (function()
     {
-		//alert("Error issuing request" + requestUrl);
+		console.log("Error issuing request" + requestUrl);
 	}).responseText;
 		
 	return result;
