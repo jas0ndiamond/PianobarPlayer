@@ -6,11 +6,9 @@
 <meta charset="utf-8">
 
 <script type="text/javascript" src="/js/pianobarplayer.js"></script>
+<script type="text/javascript" src="/js/pianobarplayer_ctl.js"></script>
 
 <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.12.4/jquery.min.js"></script>
-
-<link rel="stylesheet" href="https://ajax.googleapis.com/ajax/libs/jqueryui/1.12.1/themes/smoothness/jquery-ui.css">
-<script src="https://ajax.googleapis.com/ajax/libs/jqueryui/1.12.1/jquery-ui.min.js"></script>
 
 <!-- now playing info from nowplaying file -->
 <script type="text/javascript">
@@ -18,14 +16,14 @@ var songInterval = null;
 var stationInterval = null;
 
 $( document ).ready(function() {
-		
-	$(":button").button();
-	
-	$("#debugcheck").checkboxradio().on("change",
-			
+
+	//$(":button").button();
+
+	$("#debugcheck").on("change",
+
 		 function(event, ui) {
 			//console.log("Change fired " + $("#debugcheck").prop('checked'));
-			if($("#debugcheck").prop('checked') == false) 
+			if($("#debugcheck").prop('checked') == false)
 			{
 				$("#debuginfo").hide();
 			}
@@ -37,21 +35,28 @@ $( document ).ready(function() {
 	);
 	$("#debugcheck").prop('checked', false);
 	$("#debuginfo").hide();
-	
-	$("#stationSelect").selectmenu({
-		change: function(event, ui) {
+
+	$("#stationSelect").on("change",
+		function(event, ui) {
 	    	changeStation(this.value)
 		}
-	});
-		
+	);
+
 	$("#requestResult").show();
-    $("#songinfo").show();
-          
-    updatePlayer();
-    songInterval = setInterval( updatePlayer, 2000 );
-          
-    updateStationList();
-    stationInterval = setInterval( updateStationList, 12000 );
+  $("#songinfo").show();
+
+
+	resetIdleTimer();
+
+	//this will get the current station playing, which is used in selecting the
+	//active station from the station list
+	//start();
+	startup();
+
+  // songInterval = setInterval( getCurrentSong, 2000 );
+  // stationInterval = setInterval( updateStationList, 12000 );
+
+
 });
 </script>
 
@@ -59,7 +64,14 @@ $( document ).ready(function() {
 
 <body style="font-family:'arial'">
 
+
+
 <div id="player">
+
+<div id="currentSong" visible="true"></div>
+<div id="stationList" visible="true"></div>
+<div id="currentStation" visible="true"></div>
+
 <table style="border:solid blue 5px; border-radius: 13px;">
 <tr id="songrow"><td style="border:solid blue 5px; border-radius: 13px;">
 <div id="songinfo"></div>
@@ -77,6 +89,9 @@ $( document ).ready(function() {
 <button id="likeButton" type="button" onclick=" like(); ">:)</button>
 <button id="banButton" type="button" onclick=" ban(); ">:(</button>
 <button id="nextButton" type="button" onclick=" next(); ">&#8658;</button>
+
+<br><br>
+
 <button id="volupButton" type="button" onclick=" volup(); ">VOL+</button>
 <button id="voldownButton" type="button" onclick=" voldown(); ">VOL-</button>
 <button id="volresetButton" type="button" onclick=" volreset(); ">VOL0</button>
@@ -85,16 +100,20 @@ $( document ).ready(function() {
 
 <button id="startButton" type="button" onclick=" start(); ">Start</button>
 <button id="stopButton" type="button" onclick=" stop(); ">Stop</button>
+
+
 <button id="quitButton" type="button" onclick=" quit(); ">Quit</button>
 
-<div id="stationlist">
+
+<div id="stationlistMenu">
 	<br><b>Stations</b><br>
 	<select id="stationSelect" style="width: 350px;">
 	</select>
 </div>
 
 <div id="requestResult"></div>
-</div>
+
+</div>	<!-- player -->
 </body>
 
 </html>
