@@ -1,205 +1,390 @@
-function play()
-{
-	makeRequest("/player/play");
-		
-	$("#playButton").hide();
-	$("#pauseButton").show();
-	
-	updatePlayer();
+'use strict';
+
+var noop = function(){console.log("Executing noop");}; // function doing nothing
+
+var idleStopTimer = null;
+var stationUpdateTimer = null;
+var currentSongTimer = null;
+
+//debug timer: 30 seconds
+//var idleTimerLength = 30 * 1000;
+
+//normal timer: 45 mins
+var idleTimerLength = 45 * 30 * 1000;
+
+function startup() {
+	//check if the player is started and/or playing
+
+	function makeRequest()
+	{
+		var $derp = $.ajax
+		({
+					type:"get",
+					url:"/player/song_info",
+					dataType : 'json',
+					async: true,
+					timeout: 8000
+		}).error (function(result)
+		{
+			console.log("Error retrieving current song: " + JSON.stringify(result) );
+		}).success (function(songJSON)
+		{
+			try {
+
+				//TODO: need to call JSON.stringify? =? probably because a JSON object is returned
+
+				var currentSong = JSON.stringify(songJSON);
+
+				console.log("Startup received song: " + currentSong);
+
+				if(songJSON.song.player_stopped == false) {
+					showPlayerUI();
+
+					$("#currentSong").empty().text( currentSong );
+
+					getCurrentSong();
+
+					updateStationList();
+
+					updatePlayer();
+				}
+				else {
+					hidePlayerUI();
+				}
+
+				//currentSong = null;
+
+				//updatePlayer();
+
+			} catch (err) {
+					console.log("Error reading current song: " + err)
+			}
+
+		});
+
+		// Clean XHR object up
+		if( $derp != null ){
+			$derp.onreadystatechange = $derp.abort = noop;
+			$derp = null;
+		}
+	}
+
+	makeRequest();
+
 }
 
-function pause()
+function showPlayerUI()
 {
-	makeRequest("/player/pause");
-			
-	$("#pauseButton").hide();
-	$("#playButton").show();
+
+		$("#playButton").show();
+		$("#pauseButton").show();
+		$("#likeButton").show();
+		$("#banButton").show();
+		$("#nextButton").show();
+
+		$("#volupButton").show();
+		$("#voldownButton").show();
+		$("#volresetButton").show();
+
+		$("#stationlistMenu").show();
+
+		$("debugrow").show();
 }
 
-function next()
+function hidePlayerUI()
 {
-	makeRequest("/player/next");
-	updatePlayer();
+
+		$("#playButton").hide();
+		$("#pauseButton").hide();
+		$("#likeButton").hide();
+		$("#banButton").hide();
+		$("#nextButton").hide();
+
+		$("#volupButton").hide();
+		$("#voldownButton").hide();
+		$("#volresetButton").hide();
+
+		$("#stationlistMenu").hide();
+
+		$("debugrow").hide();
 }
 
-function upcoming()
+function getCurrentSong(force)
 {
-	//TODO: implement this info since it's available
-}
+	var forceUpdate = (force != null && force );
 
-function ban()
-{
-	makeRequest("/player/ban");
-	updatePlayer();
-}
+	if(forceUpdate) {
+		console.log("Retrieving current song forcibly");
+	}
+	else {
+		console.log("Retrieving current song");
+	}
 
-function like()
-{
-	makeRequest("/player/like");
-	
-	//ruby/bash will update the now playing file
-	
-	//update player
-	updatePlayer();
-}
+	function makeRequest()
+	{
+		var $derp = $.ajax
+		({
+					type:"get",
+					url:"/player/song_info",
+					dataType : 'json',
+					async: true,
+					timeout: 8000
+		}).error (function(result)
+		{
+			console.log("Error retrieving current song: " + JSON.stringify(result) );
+		}).success (function(songJSON)
+		{
+			var currentSong = null;
 
-function start()
-{
-	makeRequest("/player/start");
-	updatePlayer();
-}
+			try {
 
-function stop()
-{
-	makeRequest("/player/stop");
-	updatePlayer();
-}
+				//TODO: need to call JSON.stringify? =? probably because a JSON object is returned
+				currentSong = JSON.stringify(songJSON);
+			} catch (err) {
+					console.log("Error reading current song: " + err)
+			}
 
-function quit()
-{
-	//stop the song and station checks
-	clearInterval(songInterval);
-	clearInterval(stationInterval);
-	
-	$("#player").html(makeRequest("/player/quit"));
-	//updatePlayer();
-}
+			if(currentSong != null ) {
 
-function volup()
-{
-	makeRequest("/player/volup");
-}
+				var isStopped = songJSON["song"]["player_stopped"];
+				//play or pause depending on is_playing
 
-function volreset()
-{
-	makeRequest("/player/volreset");
-}
+				if(!isStopped || forceUpdate ) {
+					if( currentSong != $("#currentSong").text() )
+					{
+						//new song
+						//sessionStorage.setItem( "currentSong",  currentSong);
+						$("#currentSong").empty().text( currentSong );
 
-function voldown()
-{
-	makeRequest("/player/voldown");
-}
+						console.log("New current song: " + currentSong );
 
-function changeStation(stationNumber)
-{
-	makeRequest("/player/playstation?station=" + stationNumber);
-	updatePlayer();
-	updateStationList();
-}
+						currentSong = null;
 
-function getCurrentSong()
-{
-	return  $.parseJSON(makeRequest("/player/song_info"));
+						if(!forceUpdate) {
+							//song info will lag behind since this is async
+							updatePlayer();
+						}
+					}
+					else {
+						console.log( "No song update." );
+					}
+
+					//schedule the next check
+					currentSongTimer = setTimeout(getCurrentSong, 2500);
+				}
+				else {
+					console.log("Skipping next song update. Player is stopped.");
+				}
+			}
+			else {
+				console.log("Could not read response from song_info");
+
+				//possible the player is not stopped
+
+				//schedule the next check
+				currentSongTimer = setTimeout(getCurrentSong, 2500);
+			}
+
+		});
+
+		// Clean XHR object up
+		if( $derp != null ){
+			$derp.onreadystatechange = $derp.abort = noop;
+			$derp = null;
+		}
+	}
+
+	makeRequest();
 }
 
 function updatePlayer()
 {
-	var result = getCurrentSong();
-	
-	//in case we get a bad read
-	if
-	(
-		result != "" &&
-		result["song"] 
-	)
-	{
+	console.log("Updating player");
 
-		//play or pause depending on is_playing
-		
-		var title = result.song.title
-		
+	var songResult = null;
+
+	try
+	{
+		songResult = $.parseJSON( $("#currentSong").text() );
+		//var songResult = $.parseJSON( sessionStorage.getItem( "currentSong" ) );
+	}catch(err) {
+		console.log("Error parsing current song: " + err)
+	}
+
+	if(songResult != null ) {
+		var title = songResult.song.title;
+
+		//update the current station div
+		$("#currentStation").empty().text(songResult.song.stationName);
+		//sessionStorage.setItem( "currentStation",  songResult.song.stationName);
+
+
 		//show if song liked or not depending on rating 0 for nothing, 1 for like
-		if(result.song.rating == "1")
+		if(songResult.song.rating == "1")
 		{
 			//filled in heart because we love it
 			title += " &hearts;";
-			$("#likeButton").button( "option", "disabled", true );
+			$("#likeButton").prop( "disabled", true );
 		}
 		else
 		{
 			//blank heart because we may love it
 			title += " &#9825;"
-			$("#likeButton").button( "option", "disabled", false );
+			$("#likeButton").prop( "disabled", false );
 		}
-		
-		//update playing vs paused status. the player can be reloaded mid-song
-		if(result.song.is_playing == true)
-		{
-			$("#playButton").hide();
-			$("#pauseButton").show();
-		}
-		else
-		{
-			$("#playButton").show();
-			$("#pauseButton").hide();
-		}
-		
-		var songHtml =  "<b>Now Playing:</b><br><br><b>" + title + "</b><br>" +
-			result.song.artist + "<br>" +
-			"<i>" + result.song.album + "</i> on " + result.song.stationName
-		
-		$("#songinfo").html(songHtml);
-		
-		//status info
-		var debugHtml = 
-			"<b>pRet</b>: (" + result.song.pRet + "): " + result.song.pRetStr +
-			"<br><b>wRet</b>: (" + result.song.wRet + "): " + result.song.wRetStr;
 
-		$("#debuginfo").html(debugHtml);
-		
+		//if we're hearing the song, it hasn't been banned yet
+		$("#banButton").prop( "disabled", false );
+
+		//update playing vs paused status. the player can be reloaded mid-song
+		if(songResult.song.player_stopped == false) {
+			if(songResult.song.is_playing == true)
+			{
+				$("#playButton").hide();
+				$("#pauseButton").show();
+			}
+			else
+			{
+				$("#playButton").show();
+				$("#pauseButton").hide();
+			}
+		}
+
+		//write the current song html. this should overwrite any placeholder text
+		$("#songinfo").empty().append(
+			"<b>Now Playing:</b><br><br><b>" + title + "</b><br>" +
+			songResult.song.artist + "<br>" +
+			"<i>" + songResult.song.album + "</i> on " + songResult.song.stationName) +
+			"<br><br>(◕‿◕)";
+
+		//status info
+		$("#debuginfo").empty().append(
+			"<b>pRet</b>: (" + songResult.song.pRet + "): " + songResult.song.pRetStr +
+			"<br><b>wRet</b>: (" + songResult.song.wRet + "): " + songResult.song.wRetStr
+		);
+
 		//update upcoming list if available
 		//var upNextHtml =  "Up Next: <br><br><b>" + title + "</b><br>" +
 		//result.song.artist + "<br>" +
 		//"<i>" + result.song.album + "</i> on " + result.song.stationName
-	
-	$("#songinfo").html(songHtml);
+
 	}
-	else
+	else {
+		console.log("Skipping player update. Current song was null");
+	}
+
+	console.log("Updating player finished");
+}
+
+function resetIdleTimer()
+{
+	console.log("Resetting idle timer");
+	if(idleStopTimer) {
+		clearTimeout(idleStopTimer);
+	}
+
+	if( !isStopped() ) {
+		//idleStopTimer = setTimeout(idleStop,  60 * 60 * 1000);
+
+		//debug
+		idleStopTimer = setTimeout(idleStop,  idleTimerLength);
+	}
+	else {
+		console.log("Skipping idle timer reset. Player is stopped.");
+	}
+}
+
+function updateStationList(force)
+{
+	var forceUpdate = (force != null && force );
+
+	if(forceUpdate) {
+		console.log("Retrieving station list forcibly");
+	}
+	else {
+		console.log("Retrieving station list");
+	}
+
+	function makeRequest()
 	{
-		
-		console.log("Bad read of current song: " + JSON.stringify(result));
-	}
-}
-
-function updateStationList()
-{
-	var result =  $.parseJSON(makeRequest("/player/getstations"));
-	
-	$("#stationSelect").empty();
-	
-    //select current station
-    
-    var currentSong = getCurrentSong();
-	
-	$.each(result, function(key, value) 
-    {
-		//0 => 311 Radio
-		
-		$("#stationSelect").append("<option value=\"" + key + "\" >" + value + '</option>' );
-
-		if(value == currentSong.song.stationName)
+		var $derp = $.ajax
+		({
+	        type:"get",
+	        url:"/player/getstations",
+	        dataType : 'json',
+	        async: true,
+					timeout: 8000
+		}).error (function(result)
+	  {
+			console.log("Error retrieving station list: " + JSON.stringify(result) );
+		}).success (function(stationJSON)
 		{
-			$("#stationSelect").val(key);
-		}	
-    });
-    
+			var stationJSONString = null;
 
-    $("#stationSelect").selectmenu("refresh");
-}
+			try {
+				stationJSONString = JSON.stringify(stationJSON);
+			} catch (err) {
+				console.log("Error parsing station list: " + err)
+			}
 
-function makeRequest(requestUrl)
-{
-	var result = $.ajax
-	({
-        type:"get",
-        url:requestUrl,
-        dataType : 'json',
-        async: false
-	})
-    .error (function()
-    {
-		console.log("Error issuing request" + requestUrl);
-	}).responseText;
-		
-	return result;
+			if(stationJSONString != null) {
+				if( stationJSONString != $("#stationList").text() )
+				{
+
+					console.log("Updating station list: " + stationJSONString );
+
+					$("#stationSelect").empty();
+
+					//TODO: need to rebuild select?
+					//rebuild the select
+					// $("#stationSelect").select({
+					// 	change: function(event, ui) {
+					//     	changeStation(this.value)
+					// 	}
+					// });
+
+					//trust the div holding the current station
+					//for each item in the station list
+					$.each(stationJSON, function(key, value)
+					{
+						//0 => 311 Radio
+
+						//station entry
+						$("#stationSelect").append("<option value=\"" + key + "\" >" + value + '</option>' );
+
+						//mark the current station as selected
+						if(value == $("#currentStation").text() )
+						{
+							$("#stationSelect").val(key);
+						}
+					});
+
+					$("#stationList").empty().text( stationJSONString );
+				}
+				else {
+					console.log("No station list update" );
+				}
+
+				//$("#stationSelect").selectmenu("refresh");
+				//$("stationSelect").select({ style: 'dropdown' });
+			}
+			else {
+				console.log("Skipping player update. Station JSON string was null");
+			}
+
+			//schedule next update
+			if( !isStopped() || forceUpdate ) {
+				stationUpdateTimer = setTimeout(updateStationList, 12000);
+			}
+			else {
+				console.log("Skipping next station update. Player is stopped.");
+			}
+		});
+		// Clean XHR object up
+		if( $derp != null ){
+			$derp.onreadystatechange = $derp.abort = noop;
+			$derp = null;
+		}
+	}
+	makeRequest();
 }
