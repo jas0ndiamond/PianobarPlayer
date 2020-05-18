@@ -4,14 +4,20 @@ class MyLogger
 
   def initialize
     logdir = "#{ File.dirname(__FILE__) }/../log"
-
     Dir.mkdir(logdir) unless File.exists?(logdir)
 
+    raise "Could not create log directory #{logdir}" unless Dir.exists?(logdir)
+
+    logfile = "#{ logdir }/pianobarplayer.log"
+
     #turn on sync. sometimes messages don't make it to the logs if there's a threading problem
-    io = File.open( "#{ logdir }/pianobarplayer.log", "a")
+    io = File.open( logfile, "a")
     io.sync = true
 
     @log = Logger.new( io )
+
+    raise "Could not create log file #{logfile}" unless File.exists?(logfile)
+
   end
 
   @@instance = MyLogger.new
