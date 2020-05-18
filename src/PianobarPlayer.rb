@@ -7,6 +7,9 @@ class PianobarPlayer < Sinatra::Base
 
   set :public_folder, "#{File.dirname(__FILE__)}/../public"
 
+  BE_LOG_HANDLE = "PianobarPlayer"
+  API_LOG_HANDLE = "PianobarPlayerAPI"
+
   PIANOBAR_KEYS =
   {
     "love_song_key" => "+",
@@ -14,7 +17,7 @@ class PianobarPlayer < Sinatra::Base
     "song_info_key" => "i",
     "next_song_key" => "n",
     "pause_song_key" => "p",
-    "play_song_key" => "P",   #not used by pianobar config for some reason
+    "play_song_key" => "P",   #not used by pianobar config for some reason. TODO: check this again
     "station_change_key" => "s",
     "upcoming_song_key" => "u",
     "vol_down_key" => "(",
@@ -40,6 +43,8 @@ class PianobarPlayer < Sinatra::Base
 
     super(app)
 
+    @application_pid = Process.pid
+
     config = params.fetch(:config, false)
 
     @exe = config["executable"]
@@ -64,27 +69,27 @@ class PianobarPlayer < Sinatra::Base
 
     # only consider false. nil is okay
     if(@@player_stopped == false)
-      MyLogger.instance.warn("PianobarPlayer", "Ignoring start when PianobarPlayer is already started")
+      MyLogger.instance.warn(BE_LOG_HANDLE, "Ignoring start when PianobarPlayer is already started")
       return
     end
 
-    MyLogger.instance.info("PianobarPlayer", "Starting PianobarPlayer")
+    MyLogger.instance.info(BE_LOG_HANDLE, "Starting PianobarPlayer")
 
     @webdir = File.expand_path( "#{File.dirname(__FILE__)}/../public")
-    MyLogger.instance.info("PianobarPlayer", "Using www dir #{@webdir}")
+    MyLogger.instance.info(BE_LOG_HANDLE, "Using www dir #{@webdir}")
 
     @player_page_html = File.read("#{@webdir}/index.html")
 
     @temp_dir = File.expand_path( "#{File.dirname(__FILE__)}/../tmp")
-    MyLogger.instance.info("PianobarPlayer", "Using temp dir #{@temp_dir}")
+    MyLogger.instance.info(BE_LOG_HANDLE, "Using temp dir #{@temp_dir}")
 
     @pianobar_temp_dir = File.expand_path( "#{@temp_dir}/pianobar" )
-    MyLogger.instance.info("PianobarPlayer", "Using pianobar temp dir #{@pianobar_temp_dir}")
+    MyLogger.instance.info(BE_LOG_HANDLE, "Using pianobar temp dir #{@pianobar_temp_dir}")
 
     @pianobar_config_file = File.expand_path("#{@pianobar_temp_dir}/config")
 
     @template_dir = File.expand_path( "#{File.dirname(__FILE__)}/../templates")
-    MyLogger.instance.info("PianobarPlayer", "Using template dir #{@template_dir}")
+    MyLogger.instance.info(BE_LOG_HANDLE, "Using template dir #{@template_dir}")
 
     @pianobar_config_template = "#{@template_dir}/pianobar.conf.template"
     @pianobar_event_script_template = "#{@template_dir}/eventcmd.sh.template"
@@ -104,7 +109,12 @@ class PianobarPlayer < Sinatra::Base
 
     @max_playtime = 180
 
-    @pid = nil
+    @pianobar_pid = nil
+
+    abort("Could not find pianobar binary at #{@exe}") unless File.exists?(@exe)
+
+    MyLogger.instance.info(BE_LOG_HANDLE, "Using Pianobar binary at #{@exe}")
+
 
     Dir.mkdir( @temp_dir) unless Dir.exist?(@temp_dir)
     Dir.mkdir( "#{@temp_dir}/pianobar") unless Dir.exist?("#{@temp_dir}/pianobar")
@@ -130,9 +140,15 @@ class PianobarPlayer < Sinatra::Base
 
     pianobar_syscall = "XDG_CONFIG_HOME=#{@temp_dir} #{@exe}"
 
-    MyLogger.instance.info("PianobarPlayer", "Launching pianobar subprocess: #{pianobar_syscall}")
-    #start syscall then pause
-    @pid = fork do
+    MyLogger.instance.info(BE_LOG_HANDLE, "Launching pianobar subprocess: #{pianobar_syscall}")
+
+    #start syscall then pause player
+    @pianobar_pid = fork do
+
+      #TODO: switch this over to popen3
+
+      #ughhh
+      Process.setsid
 
       #if we don't care about pianobar output, this will disable printing it to the console
       if(!@show_pianobar_output)
@@ -145,11 +161,16 @@ class PianobarPlayer < Sinatra::Base
       #dir needs to be full path of dir containing pianobar/config
       #pianobar hardcodes the config file to ~/.config/pianobar/config.
       exec "#{pianobar_syscall}"# << ' &> /dev/null'
+
+      #@with exec, we'll never get here
+      # MyLogger.instance.info(BE_LOG_HANDLE, "Pianobar fork exiting")
+      #
+      # exit 0;
     end
 
-    raise "Could not fork pianobar proceess" unless @pid
+    raise "Could not fork pianobar proceess" unless @pianobar_pid
 
-    MyLogger.instance.info("PianobarPlayer", "Got pianobar pid: #{@pid}")
+    MyLogger.instance.info(BE_LOG_HANDLE, "Got pianobar pid: #{@pianobar_pid}")
 
     #buy time for pianobar to startup
     sleep(PIANOBAR_START_SLEEP)
@@ -165,7 +186,7 @@ class PianobarPlayer < Sinatra::Base
 
     #should timeout the pause. if pianobar launches and can't find the config, it'll just hang
     #check for any writes to the command queue
-    #MyLogger.instance.info("PianobarPlayer",  "STDOUT read: #{$stdout.string}")
+    #MyLogger.instance.info(BE_LOG_HANDLE,  "STDOUT read: #{$stdout.string}")
 
 
     #fork max time countdown thread. reset timer on user action
@@ -188,23 +209,28 @@ class PianobarPlayer < Sinatra::Base
     #check for the new now_playing file
     max_attempts = 10
     attempts = 0
-    MyLogger.instance.info("PianobarPlayer", "Waiting for nowplaying file creation" )
+    MyLogger.instance.info(BE_LOG_HANDLE, "Waiting for nowplaying file creation" )
     while( !File.exist?(@nowplaying_file) and attempts < max_attempts )
       attempts += 1
-      MyLogger.instance.warn("PianobarPlayer", "Waiting for nowplaying file creation attempt: #{attempts}" )
+      MyLogger.instance.warn(BE_LOG_HANDLE, "Waiting for nowplaying file creation attempt: #{attempts}" )
       sleep(0.5)
     end
 
     if(attempts >= max_attempts)
-      MyLogger.instance.error("PianobarPlayer", "Nowplaying file was not created. Check your pianobar config. Exiting." )
+      MyLogger.instance.error(BE_LOG_HANDLE, "Nowplaying file was not created. Check your pianobar config. Exiting." )
+
+      #TODO: maybe try echoing the quit command to the command queue
+
       stop
+
+      #TODO: necessary to kill this?
       Process.kill('TERM', Process.pid)
 
       #TODO: proper exception
       raise "Pianobar Startup problem"
 
     else
-      MyLogger.instance.info("PianobarPlayer", "Nowplaying file found" )
+      MyLogger.instance.info(BE_LOG_HANDLE, "Nowplaying file found" )
 
       #if we get now-playing data the player has technically started
       #want to set this as early as possible
@@ -212,78 +238,99 @@ class PianobarPlayer < Sinatra::Base
     end
 
     attempts = 0
-    MyLogger.instance.info("PianobarPlayer", "Waiting for station list file creation" )
+    MyLogger.instance.info(BE_LOG_HANDLE, "Waiting for station list file creation" )
     while( !File.exist?(@stationlist_file) and attempts < max_attempts )
       attempts += 1
-      MyLogger.instance.warn("PianobarPlayer", "Waiting for station list file creation attempt: #{attempts}" )
+      MyLogger.instance.warn(BE_LOG_HANDLE, "Waiting for station list file creation attempt: #{attempts}" )
       sleep(0.5)
     end
 
     if(attempts >= max_attempts)
-      MyLogger.instance.error("PianobarPlayer", "Station list file was not created. Check your pianobar config. Exiting." )
+      MyLogger.instance.error(BE_LOG_HANDLE, "Station list file was not created. Check your pianobar config. Exiting." )
 
       stop
 
-      Process.kill('TERM', @pid)
+      Process.kill('TERM', @pianobar_pid)
 
       #TODO: proper exception
       raise "Pianobar Startup problem"
     else
-      MyLogger.instance.info("PianobarPlayer", "Station list file found" )
+      MyLogger.instance.info(BE_LOG_HANDLE, "Station list file found" )
     end
 
 
 
 
 
-    MyLogger.instance.info("PianobarPlayer", "Startup completed" )
+    MyLogger.instance.info(BE_LOG_HANDLE, "Startup completed" )
+
+
+
   end
 
   def stop
 
-    #only consider true. nil is okay
+    #only consider true. nil is okay and means false
     if(@@player_stopped == true)
-      MyLogger.instance.warn("PianobarPlayer", "Ignoring stop when PianobarPlayer is already stopped")
+      MyLogger.instance.warn(BE_LOG_HANDLE, "Ignoring stop when PianobarPlayer is already stopped")
       return
     end
 
     @@player_stopped = true
 
-    MyLogger.instance.info("PianobarPlayer", "Stopping PianobarPlayer")
+    MyLogger.instance.info(BE_LOG_HANDLE, "Stopping PianobarPlayer")
 
     #kill pianobar if it's already running
     #can't kill all pianobar processes, another user may be using their own pianobar process
-    if(@pid)
+    if(@pianobar_pid)
+
+      pid_exists_syscall = "ps -ef | grep #{@pianobar_pid} | grep pianobar | grep -v grep"
 
       #TODO: quit may hang. time this operation out and kill if necessary
       pianobar_command(PIANOBAR_KEYS["quit_key"])
-      sleep(PIANOBAR_STOP_SLEEP)
 
-      #TODO: verify pianobar process tied to pid is terminated.
+      #buy time for the quit to complete
+      #sleep(PIANOBAR_STOP_SLEEP)
+
+      attempts = 0
+      max_attempts = 10
+      while( `#{pid_exists_syscall}` && attempts < max_attempts )
+        MyLogger.instance.debug(BE_LOG_HANDLE, "Pianobar process (#{@pianobar_pid}) still alive. Waiting on quit to complete.")
+        attempts += 1
+        sleep(1)
+      end
+
+      #meed thos or otherwise the pianobar process zombies out. something to do with exec running in a fork
+      Process.detach(@pianobar_pid)
+
       #a new process could claim the pid during the shutdown sleep
-      if(`ps -ef | grep #{@pid} | grep pianobar | grep -v grep`)
+      if(`#{pid_exists_syscall}`)
 
-        MyLogger.instance.warn("PianobarPlayer", "Pianobar process (#{@pid}) still alive. Terminating forcibly.")
+        MyLogger.instance.warn(BE_LOG_HANDLE, "Pianobar process (#{@pianobar_pid}) still alive. Terminating forcibly.")
 
-        Process.kill('TERM', @pid)
+        begin
+          Process.kill('TERM', @pianobar_pid)
+        rescue Exception => e
+          MyLogger.instance.warn(BE_LOG_HANDLE, "Exception termininating pianobar pid: #{e}")
+        end
       else
-        MyLogger.instance.info("PianobarPlayer", "Pianobar process successfully quit.")
+        MyLogger.instance.info(BE_LOG_HANDLE, "Pianobar process successfully quit.")
       end
 
 
 
-      @pid = nil
+      @pianobar_pid = nil
 
       @@is_playing = false
     else
-      MyLogger.instance.warn("PianobarPlayer", "Attempted to kill pianobar subprocess, but the pid was invalid: #{@pid}")
+      MyLogger.instance.warn(BE_LOG_HANDLE, "Attempted to kill pianobar subprocess, but the pid was invalid: #{@pianobar_pid}")
     end
 
   end
 
   def write_pianobar_config
 
-    MyLogger.instance.info("PianobarPlayer", "Writing pianobar config to #{@pianobar_config_file} using template #{@pianobar_config_template}")
+    MyLogger.instance.info(BE_LOG_HANDLE, "Writing pianobar config to #{@pianobar_config_file} using template #{@pianobar_config_template}")
 
     #load template, set value hash, render template, write to location
 
@@ -312,14 +359,14 @@ class PianobarPlayer < Sinatra::Base
 
     File.write( @pianobar_config_file, rendered_config )
 
-    MyLogger.instance.info("PianobarPlayer", "Pianobar config written")
+    MyLogger.instance.info(BE_LOG_HANDLE, "Pianobar config written")
 
   end
 
   def write_pianobar_eventcmd
     #load template, set value hash, render template, write to location
 
-    MyLogger.instance.info("PianobarPlayer", "Writing pianobar event script to #{@eventcmd_executable} using template #{@pianobar_event_script_template}")
+    MyLogger.instance.info(BE_LOG_HANDLE, "Writing pianobar event script to #{@eventcmd_executable} using template #{@pianobar_event_script_template}")
 
     script = ""
 
@@ -347,7 +394,7 @@ class PianobarPlayer < Sinatra::Base
     #already checked for file existence a few lines up
     raise "Could make event script executable at #{@eventcmd_executable}" unless File.executable?(@eventcmd_executable)
 
-    MyLogger.instance.info("PianobarPlayer", "Pianobar event script written")
+    MyLogger.instance.info(BE_LOG_HANDLE, "Pianobar event script written")
   end
 
   ####################
@@ -360,7 +407,7 @@ class PianobarPlayer < Sinatra::Base
     input = input[0..5]
 
     if(input =~ /[a-zA-Z\+\-\^\(\)]/)
-      MyLogger.instance.info("PianobarPlayer", "Received pianobar command #{input}")
+      MyLogger.instance.info(BE_LOG_HANDLE, "Received pianobar command #{input}")
 
       #command_queue is a named pipe
       #TODO: check that a process is reading from the pipe
@@ -369,15 +416,15 @@ class PianobarPlayer < Sinatra::Base
       retval = system("echo \"#{input}\" > #{@command_queue} &")
 
       if(!retval)
-        MyLogger.instance.warn("PianobarPlayer", "Writing command #{input} to pipe has failed")
+        MyLogger.instance.warn(BE_LOG_HANDLE, "Writing command #{input} to pipe has failed")
       else
-        MyLogger.instance.debug("PianobarPlayer", "Writing command #{input} to pipe has succeeded")
+        MyLogger.instance.debug(BE_LOG_HANDLE, "Writing command #{input} to pipe has succeeded")
       end
     else
-      MyLogger.instance.warn("PianobarPlayer", "Ignoring invalid pianobar command")
+      MyLogger.instance.warn(BE_LOG_HANDLE, "Ignoring invalid pianobar command")
     end
 
-    #MyLogger.instance.info("PianobarPlayer",  "STDOUT read: #{$stdout.string}")
+    #MyLogger.instance.info(BE_LOG_HANDLE,  "STDOUT read: #{$stdout.string}")
 
     return retval
   end
@@ -390,7 +437,7 @@ class PianobarPlayer < Sinatra::Base
 
     #sleep? pianobar may take time to get the next song
     while(File.mtime(@nowplaying_file) == mod_time)
-      MyLogger.instance.debug("PianobarPlayer", "sleeping, waiting for nowplaying update" )
+      MyLogger.instance.debug(BE_LOG_HANDLE, "sleeping, waiting for nowplaying update" )
       sleep(NOWPLAYING_SLEEP)
     end
   end
@@ -405,7 +452,7 @@ class PianobarPlayer < Sinatra::Base
 
       #check for lockfile first
       while(File.exist?( @stationlist_lock_file) )
-        MyLogger.instance.warn("PianobarPlayer", "stations file being written to. waiting for lock file to be removed." )
+        MyLogger.instance.warn(BE_LOG_HANDLE, "stations file being written to. waiting for lock file to be removed." )
         sleep(LOCKFILE_SLEEP)
       end
 
@@ -415,10 +462,10 @@ class PianobarPlayer < Sinatra::Base
         stations_json = JSON.parse(File.read(@stationlist_file))
         retval = stations_json.to_json
       rescue JSON::ParserError => e
-        MyLogger.instance.warn("PianobarPlayer", "Error parsing stations file #{@stationlist_file}: #{e}" )
+        MyLogger.instance.warn(BE_LOG_HANDLE, "Error parsing stations file #{@stationlist_file}: #{e}" )
       end
     else
-      MyLogger.instance.warn("PianobarPlayer", "stations file does not exist #{@stationlist_file}" )
+      MyLogger.instance.warn(BE_LOG_HANDLE, "stations file does not exist #{@stationlist_file}" )
     end
 
     return retval
@@ -472,7 +519,7 @@ class PianobarPlayer < Sinatra::Base
 
           #check for lockfile first
           while(File.exist?( @nowplaying_lock_file) )
-            MyLogger.instance.warn("PianobarPlayer", "nowplaying file being written to. waiting for lock file to be removed." )
+            MyLogger.instance.warn(BE_LOG_HANDLE, "nowplaying file being written to. waiting for lock file to be removed." )
             sleep(LOCKFILE_SLEEP)
           end
 
@@ -485,17 +532,17 @@ class PianobarPlayer < Sinatra::Base
 
             retval = song_info_json.to_json
 
-            MyLogger.instance.debug("PianobarPlayer", "Current song is: #{retval}" )
+            MyLogger.instance.debug(BE_LOG_HANDLE, "Current song is: #{retval}" )
           rescue JSON::ParserError => e
-            MyLogger.instance.warn("PianobarPlayer", "Error parsing nowplaying file #{@nowplaying_file}: #{e}" )
+            MyLogger.instance.warn(BE_LOG_HANDLE, "Error parsing nowplaying file #{@nowplaying_file}: #{e}" )
           end
         else
-          MyLogger.instance.warn("PianobarPlayer", "nowplaying file does not exist #{@nowplaying_file}" )
+          MyLogger.instance.warn(BE_LOG_HANDLE, "nowplaying file does not exist #{@nowplaying_file}" )
           attempts += 1
         end
       end
     else
-      MyLogger.instance.warn("PianobarPlayer", "Song info request made on stopped player" )
+      MyLogger.instance.warn(BE_LOG_HANDLE, "Song info request made on stopped player" )
       retval = "{\"song\":{\"player_stopped\":#{@@player_stopped}}}"
     end
 
@@ -506,6 +553,27 @@ class PianobarPlayer < Sinatra::Base
     pianobar_command_sync("s#{station}")
 
     pause unless @@is_playing
+  end
+
+  def quit
+
+    #assume stop is called
+    #TODO: call stop if not_stopped flag or something
+
+    fork do
+      MyLogger.instance.info(BE_LOG_HANDLE,"Pianobar Player exit thread started")
+      sleep 20
+
+      MyLogger.instance.debug(BE_LOG_HANDLE,"Pianobar Player exit thread terminating process")
+
+      #kill ourselves :/
+      Process.kill('TERM', @application_pid )
+
+    end
+
+    #exiter.start
+
+    MyLogger.instance.debug(BE_LOG_HANDLE,"Pianobar Player quit returning")
   end
 
 ###############################################################
@@ -597,24 +665,22 @@ class PianobarPlayer < Sinatra::Base
   get "/#{@@webapp}/quit" do
     content_type :json
 
+    MyLogger.instance.info(API_LOG_HANDLE,"Pianobar Player exiting")
+
+    #in case we're paying attention to the console output
+
+
     stop
 
-    MyLogger.instance.info("PianobarPlayer","Pianobar Player exiting")
+
 
     #TODO: maybe fork a delayed exit and return a legit response
 
     #have to exit this way. sinatra rescues calls to SystemExit.
 
-    exiter = Thread.new do
-      MyLogger.instance.debug("PianobarPlayer","Pianobar Player exit thread started")
-      sleep 20
+    quit
 
-      MyLogger.instance.debug("PianobarPlayer","Pianobar Player exit thread terminating process")
-
-      Process.kill('TERM', Process.pid)
-    end
-
-    exiter.join
+    #TODO: return html quit message
 
     #return "<html><body><b>Thanks for coming, please tip your server</b><br><a href=\"/player\">Return to player</a></body></html>"
     status 200
@@ -650,11 +716,11 @@ class PianobarPlayer < Sinatra::Base
     #TODO: enforce the length in the regex too
     if(new_station =~ /\d+/)
 
-      MyLogger.instance.info("PianobarPlayer","Changing pianobar station to #{new_station}")
+      MyLogger.instance.info(API_LOG_HANDLE,"Changing pianobar station to #{new_station}")
 
       change_station(new_station)
     else
-      MyLogger.instance.warn("PianobarPlayer","Ignoring invalid station change")
+      MyLogger.instance.warn(API_LOG_HANDLE,"Ignoring invalid station change")
 
     end
 
