@@ -10,6 +10,9 @@
 
 <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.12.4/jquery.min.js"></script>
 
+<link rel="shortcut icon" href="/favicon.ico" type="image/x-icon">
+<link rel="icon" href="/favicon.ico" type="image/x-icon">
+
 <!-- now playing info from nowplaying file -->
 <script type="text/javascript">
 var songInterval = null;
@@ -83,6 +86,7 @@ $( document ).ready(function() {
 </td></tr>
 </table>
 
+<div id="playerControl">
 <br>
 <button id="playButton" type="button" onclick=" play(); ">Play</button>
 <button id="pauseButton" type="button" onclick=" pause(); ">Pause</button>
@@ -103,7 +107,7 @@ $( document ).ready(function() {
 
 
 <button id="quitButton" type="button" onclick=" quit(); ">Quit</button>
-
+</div>
 
 <div id="stationlistMenu">
 	<br><b>Stations</b><br>
