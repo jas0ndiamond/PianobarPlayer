@@ -153,6 +153,10 @@ function getCurrentSong(force)
 					if( currentSong != $("#currentSong").text() )
 					{
 						//new song
+
+						//execute new song trigger
+
+
 						//sessionStorage.setItem( "currentSong",  currentSong);
 						$("#currentSong").empty().text( currentSong );
 
@@ -228,7 +232,7 @@ function updatePlayer()
 		}
 		else
 		{
-			//blank heart because we may love it
+			//blank heart because we may love it once we listen to it
 			title += " &#9825;"
 			$("#likeButton").prop( "disabled", false );
 		}
@@ -254,8 +258,8 @@ function updatePlayer()
 		$("#songinfo").empty().append(
 			"<b>Now Playing:</b><br><br><b>" + title + "</b><br>" +
 			songResult.song.artist + "<br>" +
-			"<i>" + songResult.song.album + "</i> on " + songResult.song.stationName) +
-			"<br><br>(◕‿◕)";
+			"<i>" + songResult.song.album + "</i> on " + songResult.song.stationName + "<br><br>ヽ(͡◕ ͜ʖ ͡◕)ﾉ<br>"
+		);
 
 		//status info
 		$("#debuginfo").empty().append(
@@ -278,6 +282,8 @@ function updatePlayer()
 
 function resetIdleTimer()
 {
+	//TODO: implement this on the backend
+
 	console.log("Resetting idle timer");
 	if(idleStopTimer) {
 		clearTimeout(idleStopTimer);
@@ -328,41 +334,58 @@ function updateStationList(force)
 			}
 
 			if(stationJSONString != null) {
-				if( stationJSONString != $("#stationList").text() )
-				{
 
-					console.log("Updating station list: " + stationJSONString );
 
-					$("#stationSelect").empty();
 
-					//TODO: need to rebuild select?
-					//rebuild the select
-					// $("#stationSelect").select({
-					// 	change: function(event, ui) {
-					//     	changeStation(this.value)
-					// 	}
-					// });
+				//var isStopped = songJSON["song"]["player_stopped"];
+				//TODO: need a safe way of retrieving if the currentsong is playing
+				var isStopped = false;
 
-					//trust the div holding the current station
-					//for each item in the station list
-					$.each(stationJSON, function(key, value)
+
+				if(!isStopped || forceUpdate ) {
+
+					if( stationJSONString != $("#stationList").text() )
 					{
-						//0 => 311 Radio
 
-						//station entry
-						$("#stationSelect").append("<option value=\"" + key + "\" >" + value + '</option>' );
+						console.log("Updating station list: " + stationJSONString );
 
-						//mark the current station as selected
-						if(value == $("#currentStation").text() )
+						$("#stationSelect").empty();
+
+						//TODO: need to rebuild select?
+						//rebuild the select
+						// $("#stationSelect").select({
+						// 	change: function(event, ui) {
+						//     	changeStation(this.value)
+						// 	}
+						// });
+
+						//trust the div holding the current station
+						//for each item in the station list
+						$.each(stationJSON, function(key, value)
 						{
-							$("#stationSelect").val(key);
-						}
-					});
+							//0 => 311 Radio
 
-					$("#stationList").empty().text( stationJSONString );
+							//station entry
+							$("#stationSelect").append("<option value=\"" + key + "\" >" + value + '</option>' );
+
+							//mark the current station as selected
+							if(value == $("#currentStation").text() )
+							{
+								$("#stationSelect").val(key);
+							}
+						});
+
+						$("#stationList").empty().text( stationJSONString );
+					}
+					else {
+						console.log("No station list update" );
+					}
+
+					//schedule next update
+					stationUpdateTimer = setTimeout(updateStationList, 12000);
 				}
 				else {
-					console.log("No station list update" );
+					console.log("Skipping next station list update. Player is stopped.");
 				}
 
 				//$("#stationSelect").selectmenu("refresh");
@@ -370,15 +393,17 @@ function updateStationList(force)
 			}
 			else {
 				console.log("Skipping player update. Station JSON string was null");
+
+				stationUpdateTimer = setTimeout(updateStationList, 12000);
 			}
 
 			//schedule next update
-			if( !isStopped() || forceUpdate ) {
-				stationUpdateTimer = setTimeout(updateStationList, 12000);
-			}
-			else {
-				console.log("Skipping next station update. Player is stopped.");
-			}
+			// if( !isStopped() || forceUpdate ) {
+			// 	stationUpdateTimer = setTimeout(updateStationList, 12000);
+			// }
+			// else {
+			// 	console.log("Skipping next station update. Player is stopped.");
+			// }
 		});
 		// Clean XHR object up
 		if( $derp != null ){

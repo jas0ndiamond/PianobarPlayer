@@ -308,6 +308,7 @@ function stop()
 	$("#currentSong").empty();
 	$("#stationList").empty();
 	$("#currentStation").empty();
+	$("#stationlistMenu").empty();
 	$("#songinfo").empty().append("<b>Player is stopped ( ■ _ ■ )</b>");
 }
 
@@ -318,7 +319,14 @@ function quit()
 	clearTimeout(stationUpdateTimer);
 	clearTimeout(idleStopTimer);
 
-	//TODO: better implmentation and sanitize
+	//clear song and stations
+	$("#currentSong").empty();
+	$("#stationList").empty();
+	$("#currentStation").empty();
+	$("#stationlistMenu").empty();
+
+	$("#songinfo").empty().append('<b>Player has quit. Thanks for listening. ┌(° ͜ʖ͡°)┘</b><br>Refresh the page to reload the player<br><a href="javascript:window.location.reload();">Refresh</a>');
+	$("#playerControl").empty();
 
 	function makeRequest()
 	{
@@ -335,7 +343,6 @@ function quit()
 
 			//$("#player").empty().html(makeRequest("/player/quit"));
 
-			$("#player").empty();
 		});
 
 		// Clean XHR object up
@@ -351,6 +358,8 @@ function quit()
 function volup()
 {
 	resetIdleTimer();
+
+	console.log("Volume increased");
 
 	function makeRequest()
 	{
@@ -381,6 +390,8 @@ function volreset()
 {
 	resetIdleTimer();
 
+	console.log("Volume reset");
+
 	function makeRequest()
 	{
 		var $derp = $.ajax
@@ -410,6 +421,8 @@ function voldown()
 {
 	resetIdleTimer();
 
+	console.log("Volume decreased");
+
 	function makeRequest()
 	{
 		var $derp = $.ajax
@@ -424,6 +437,7 @@ function voldown()
 		});
 
 		//do not need to update the player for volume. currently there's no volume readout
+
 
 		// Clean XHR object up
 		if( $derp != null ){
